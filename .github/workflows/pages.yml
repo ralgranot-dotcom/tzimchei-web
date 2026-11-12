@@ -1,0 +1,53 @@
+name: Test and publish
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set version
+        run: |
+          V="1.0.${{ github.run_number }}"
+          sed -i "s/__VERSION__/$V/g" site/app.js site/sw.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the iPhone browser engine
+        working-directory: test
+        run: |
+          npm init -y >/dev/null
+          npm install playwright@1.49.1
+          npx playwright install --with-deps webkit
+      - name: Test every screen as an iPhone
+        run: |
+          (cd site && python3 -m http.server 8000 >/dev/null 2>&1 &)
+          sleep 2
+          mkdir -p shots
+          node test/test.mjs http://localhost:8000/ webkit shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shots
+          path: shots
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
